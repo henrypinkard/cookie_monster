@@ -1,0 +1,10 @@
+*.pdf
+#compiled python files
+*.pyc
+*.pyo
+
+#pycharm files
+analysis/.idea/*
+Icon
+.ipynb_checkpoints
+
