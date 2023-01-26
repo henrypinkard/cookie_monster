@@ -1,11 +1,13 @@
-# General used
+# General use
+  
+
+make a stop_training dir in home directory (for henrystopit)
 
 mkdir config_files_cookie_monster
 
 .
 ├── complete
 ├── pending
-├── stop_training
 ├── template.yaml
 └── training
 
