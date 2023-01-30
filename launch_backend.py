@@ -143,7 +143,7 @@ while True:
         # Update the number of attempts and resave config file
 
         config['scheduler']['attempt_number'] = config['scheduler']['attempt_number'] + 1
-        config['scheduler']['date'] = datetime.datetime.now().strftime("%Y-%m-%d")
+        config['scheduler']['date'] = datetime.now().strftime("%Y-%m-%d")
         if 'training' in config.keys():
             del config['training']
         with open( CONFIG_FILE_DIR + 'training/' + config_file_name , 'w') as file:

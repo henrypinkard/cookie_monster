@@ -68,6 +68,10 @@ def create_saving_dir(saving_dir_root, model_name, overwrite):
         if os.path.exists(dest):
             shutil.rmtree(dest)
         os.mkdir(dest)
+    else:
+        if os.path.exists(dest):
+            raise Exception("Experiment already exists")
+        os.mkdir(dest)
     return dest   
             
 
