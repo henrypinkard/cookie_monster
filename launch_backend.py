@@ -9,7 +9,8 @@ import subprocess
 import os
 import shutil
 import argparse
-from cookie_monster_lib import launch_training, check_GPU_status, create_saving_dir, check_for_kill_flag
+from cookie_monster_lib import launch_training, check_GPU_status, \
+    create_saving_dir, check_for_kill_flag, print_status_update
 import yaml
 
 DEBUG = False
@@ -29,24 +30,30 @@ SAVING_DIR_ROOT = args.save_dir
 
 
 USAGE_THRESHOLD = 30 # need less than 30 percent usage
-MEMORY_THRESHOLD = 6 # need more than 6 GB  
+FREE_MEMORY_THRESHOLD = 6 # need more than 6 GB  
+UPDATE_INTERVAL = 30 #seconds
+GPU_KILL_DELAY = 60 * 60 * 3 # 3 hours
+GPU_LAUNCH_DELAY = 60 * 15 # Wait min before launching new process on same GPU
+
 
 gpu_status_delta_t = 1 #seconds
-gpu_status_average_window = 60 * 30  #seconds
-# gpu_status_average_window = 0.2 * 30  #seconds
-
+gpu_status_average_window = 60 * 10  # how long it will wait to decide if a GPU is free
+# gpu_status_average_window = 60 * 3  #seconds
 
 num_gpu_samples = gpu_status_average_window // gpu_status_delta_t
 
 active_training_processes = {} #map from model/config file names to paths
-gpu_indices = {}
+gpu_indices = {} #map from model/config file names to gpu indices
+gpu_launch_times = {} #map from gpu indices to time of last launch on the
 
 #start up GPU status monitoring
 nvidia_smi.nvmlInit()
 num_GPUs = nvidia_smi.nvmlDeviceGetCount() 
 gpu_usage = {index: [] for index in range(num_GPUs)}
 gpu_memory = {index: [] for index in range(num_GPUs)}
+gpu_kill_times = {index: 0 for index in range(num_GPUs)}
 
+last_status_time = -1
 
 while True:
     start_time = time.time()
@@ -55,7 +62,7 @@ while True:
     for config_file in list(active_training_processes.keys()):
         process = active_training_processes[config_file]
         if process.poll() is not None:
-            print('clearing process')
+            print('clearing process ', config_file)
             # its finished
             del active_training_processes[config_file]
             del gpu_indices[config_file]
@@ -74,33 +81,50 @@ while True:
 
                 
     #check for kill flag
-    gpu_usage, gpu_memory = check_for_kill_flag(active_training_processes, gpu_indices, gpu_usage, gpu_memory, num_GPUs)
-            
+    killed_gpu_index = check_for_kill_flag(active_training_processes, gpu_indices)
+    if killed_gpu_index is not None:
+        print('killed gpu index: ', killed_gpu_index)
+        gpu_kill_times[killed_gpu_index] = time.time()
                 
     available_GPUs = []
-    for index in range(num_GPUs):
+    for gpu_index in range(num_GPUs):
           
         # record usage
-        memory, usage = check_GPU_status(index)
-        gpu_usage[index].append(usage)
-        gpu_memory[index].append(memory)
-        if len(gpu_usage[index]) > num_gpu_samples:
-            gpu_usage[index] = gpu_usage[index][-num_gpu_samples:]
-            gpu_memory[index] = gpu_memory[index][-num_gpu_samples:]
+        free_memory, usage = check_GPU_status(gpu_index)
+        gpu_usage[gpu_index].append(usage)
+        gpu_memory[gpu_index].append(free_memory)
+        if len(gpu_usage[gpu_index]) > num_gpu_samples:
+            gpu_usage[gpu_index] = gpu_usage[gpu_index][-num_gpu_samples:]
+            gpu_memory[gpu_index] = gpu_memory[gpu_index][-num_gpu_samples:]
         # compute averages
-        average_usage = np.mean(gpu_usage[index])
-        average_memory = np.mean(gpu_memory[index])
+        average_usage = np.mean(gpu_usage[gpu_index])
+        average_memory = np.mean(gpu_memory[gpu_index])
         if average_usage < USAGE_THRESHOLD and usage < USAGE_THRESHOLD and \
-            memory > MEMORY_THRESHOLD and average_memory > MEMORY_THRESHOLD:
-            available_GPUs.append(index)
-        else:
-            print('GPU ', index, ' unavailable')
-    for gpu_index in gpu_indices.values():
-        if gpu_index in available_GPUs:
-            available_GPUs.remove(gpu_index)
-    
+            free_memory > FREE_MEMORY_THRESHOLD and average_memory > FREE_MEMORY_THRESHOLD:
+            available_GPUs.append(gpu_index)
+            if gpu_index in gpu_kill_times.keys():
+                if time.time() - gpu_kill_times[gpu_index] < GPU_KILL_DELAY and gpu_index in available_GPUs:
+                    available_GPUs.remove(gpu_index)
+                else:
+                    del gpu_kill_times[gpu_index] # reset kill time   
+            if gpu_index in gpu_launch_times.keys() and \
+                    time.time() - gpu_launch_times[gpu_index] < GPU_LAUNCH_DELAY and gpu_index in available_GPUs:
+                available_GPUs.remove(gpu_index)
+ 
+
+        if time.time() - last_status_time > UPDATE_INTERVAL:   
+            print('GPU ', gpu_index, ' utilization: {:.2f}'.format( average_usage),
+             '%, {:.2f}'.format(average_memory), 'GB free')
+
+    if time.time() - last_status_time > UPDATE_INTERVAL:
+        print_status_update(gpu_launch_times, gpu_kill_times, available_GPUs, gpu_indices, configs_to_retry, num_GPUs, 
+                GPU_LAUNCH_DELAY, GPU_KILL_DELAY, CONFIG_FILE_DIR)
+        
+        last_status_time = time.time()
+
+
     if len(available_GPUs) == 0:
-        print('No GPUs available')
+        # print('No GPUs available')
         time.sleep(gpu_status_delta_t)
         continue
 
@@ -108,14 +132,13 @@ while True:
     
     while True:
         if len(available_GPUs) == 0: 
-            print('no GPUs available')
+            # print('no GPUs available')
             break
         
-        if len(available_GPUs) == 1 and len(gpu_usage[available_GPUs[0]]) < num_gpu_samples:
-            print("waiting before hogging last GPU{:.2f}%".format(len(gpu_usage[available_GPUs[0]]) / num_gpu_samples *100))
-            break
+        # if len(available_GPUs) == 1 and len(gpu_usage[available_GPUs[0]]) < num_gpu_samples:
+        #     print("waiting before hogging last GPU{:.2f}%".format(len(gpu_usage[available_GPUs[0]]) / num_gpu_samples *100))
+        #     break
         
-        print('available gpus', available_GPUs)
         # anything to train?
         #    Check for failed attempts
         #    Check for pending config files
@@ -126,18 +149,25 @@ while True:
             # load config
             with open(config_path, "r") as stream:
                 config = yaml.safe_load(stream)
-            overwrite =  not config['scheduler']['resume_training']
-            saving_dir = create_saving_dir(SAVING_DIR_ROOT, config_file_name[:-5], overwrite=overwrite)
+            should_resume =  not config['scheduler']['resume_training']
+            # if it does exist, and youre not resuming, then delete the model dir
+            dest = SAVING_DIR_ROOT + config_file_name[:-5]
+            if os.path.exists(dest) and not should_resume:
+                shutil.rmtree(dest)
+            elif should_resume and not os.path.exists(dest):
+                warnings.warn('trying to resume training but model dir does not exist')
+            saving_dir = create_saving_dir(SAVING_DIR_ROOT, config_file_name[:-5])
+            # else it should already exist
         elif len(pending_configs) > 0:
             config_file_name = pending_configs.pop(0)
-            saving_dir = create_saving_dir(SAVING_DIR_ROOT, config_file_name[:-5], overwrite=False)
+            saving_dir = create_saving_dir(SAVING_DIR_ROOT, config_file_name[:-5])
             print('moving pending config file to training')
             config_path = CONFIG_FILE_DIR + 'training/' + config_file_name
             shutil.move(CONFIG_FILE_DIR + 'pending/' + config_file_name, config_path)
             with open(config_path, "r") as stream:
                 config = yaml.safe_load(stream)
         else:
-            print('waiting for something to train')
+            # print('waiting for something to train')
             break #nothing to train
         
         # Update the number of attempts and resave config file
@@ -152,12 +182,19 @@ while True:
         # prefer GPUs with most available memory:
         free_mem = np.array([np.mean(gpu_memory[index]) for index in available_GPUs])
         to_use = np.argmax(free_mem)
-        print('next to use ', available_GPUs[to_use])
+        # print('next to use ', available_GPUs[to_use])
         gpu_index = available_GPUs.pop(to_use)
         config_file_path = CONFIG_FILE_DIR + 'training/' + config_file_name
         active_training_processes[config_file_name] = launch_training(train_script_path, gpu_index, saving_dir, config_file_path, saving_dir)
         gpu_indices[config_file_name] = gpu_index
-        print("Launching training {} on GPU {}".format(config_file_path, gpu_index))
+        # reset memory and usage history for this GPU so that another training waits before launching
+        print('\n######################################################')
+        print("\nGPU {}: Launched training {}".format(gpu_index, config_file_path))
+        print('######################################################\n')
+        gpu_launch_times[int(gpu_index)] = time.time()
+        # reset these because they are now out of date
+        gpu_usage[gpu_index] = []
+        gpu_memory[gpu_index] = []
 
 
         

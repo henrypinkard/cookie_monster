@@ -10,6 +10,34 @@ import shutil
 import argparse
 
         
+def print_status_update(gpu_launch_times, gpu_kill_times, available_GPUs, gpu_indices, configs_to_retry, num_GPUs, 
+                GPU_LAUNCH_DELAY, GPU_KILL_DELAY, CONFIG_FILE_DIR):
+    for gpu_index in range(num_GPUs):
+        # delay from it being killed
+        if gpu_index in gpu_kill_times.keys() and \
+            time.time() - gpu_kill_times[gpu_index] < GPU_KILL_DELAY:
+            print('GPU ', gpu_index, ' is being left open for {:.2f}'.format(
+                (GPU_KILL_DELAY - (time.time() - gpu_kill_times[gpu_index])) / 60), ' minutes')
+        # delay from another process launching on this GPU
+        if gpu_index in gpu_launch_times.keys() and \
+                time.time() - gpu_launch_times[gpu_index] < GPU_LAUNCH_DELAY:
+            print('GPU ', gpu_index, ' is being left open for {:.2f}'.format(
+                (GPU_LAUNCH_DELAY - (time.time() - gpu_launch_times[gpu_index])) / 60), ' minutes')
+    print('available GPUs: ', available_GPUs)
+    # print which configs are training on which GPUs
+    for index in range(num_GPUs):
+        if index in gpu_indices.values():
+            print('GPU ', index, ' is training ')
+            for config_file, gpu_index in gpu_indices.items():
+                if gpu_index == index:
+                    print('\t', config_file)
+    print('configs to retry: \n', configs_to_retry)
+    for config in configs_to_retry:
+        print('\t', config)
+    pending_configs = [s for s in os.listdir(CONFIG_FILE_DIR + 'pending') if s.endswith(".yaml")]
+    print(len(pending_configs), ' configs pending', '\n\n\n')
+
+
 def check_GPU_status(index):
     handle = nvidia_smi.nvmlDeviceGetHandleByIndex(index)
     info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
@@ -61,21 +89,18 @@ def launch_training(train_script_path, gpu_index, saving_dir, config_file_path, 
     return process
 
 
-def create_saving_dir(saving_dir_root, model_name, overwrite):
-    # Add unique suffix to experiment replicate
+def create_saving_dir(saving_dir_root, model_name):
+    """
+    Create a directory for saving the model, overwriting if needed
+    """
     dest = saving_dir_root + model_name
-    if overwrite:
-        if os.path.exists(dest):
-            shutil.rmtree(dest)
-        os.mkdir(dest)
-    else:
-        if os.path.exists(dest):
-            raise Exception("Experiment already exists")
-        os.mkdir(dest)
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    os.mkdir(dest)
     return dest   
             
 
-def check_for_kill_flag(active_training_processes, gpu_indices, gpu_usage, gpu_memory, num_GPUs):
+def check_for_kill_flag(active_training_processes, gpu_indices):
     # Get home directory
     home = os.path.expanduser("~")
     flags = os.listdir(home + '/stop_training')
@@ -83,20 +108,18 @@ def check_for_kill_flag(active_training_processes, gpu_indices, gpu_usage, gpu_m
     with open(home + '/stop_training/stop', 'r+') as f:
         gpu_index = f.readline()
         if len(gpu_index) == 0:
-            return gpu_usage, gpu_memory
+            return 
         f.truncate(0) #clear file
     # kill a process
     if len(active_training_processes) > 0:
         print("killing process")
         process_keys = list(active_training_processes.keys())
+        cleared_gpu_index = gpu_indices[process_keys[0]] 
         unlucky_process = active_training_processes[process_keys[0]]
         for key in process_keys:
             if int(gpu_indices[key]) == int(gpu_index):
+                cleared_gpu_index = int(gpu_index)
                 unlucky_process = active_training_processes[key]
                 print("killing process {}".format(key))
         unlucky_process.kill()
-        # reset wait to start a new one
-        gpu_usage = {index: [] for index in range(num_GPUs)}
-        gpu_memory = {index: [] for index in range(num_GPUs)}
-
-    return gpu_usage, gpu_memory
+        return cleared_gpu_index
