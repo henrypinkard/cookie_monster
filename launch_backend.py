@@ -29,8 +29,9 @@ CONFIG_FILE_DIR = args.config_dir
 SAVING_DIR_ROOT = args.save_dir
 
 
-USAGE_THRESHOLD = 30 # need less than 30 percent usage
-FREE_MEMORY_THRESHOLD = 6 # need more than 6 GB  
+USAGE_THRESHOLD = 60 # need less than 30 percent usage (average)
+FREE_MEMORY_THRESHOLD = 6 # need more than 6 GB free memory at all times over last 10 minutes
+
 UPDATE_INTERVAL = 30 #seconds
 GPU_KILL_DELAY = 60 * 60 * 3 # 3 hours
 GPU_LAUNCH_DELAY = 60 * 15 # Wait min before launching new process on same GPU

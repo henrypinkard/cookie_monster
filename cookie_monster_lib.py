@@ -114,12 +114,17 @@ def check_for_kill_flag(active_training_processes, gpu_indices):
     if len(active_training_processes) > 0:
         print("killing process")
         process_keys = list(active_training_processes.keys())
-        cleared_gpu_index = gpu_indices[process_keys[0]] 
-        unlucky_process = active_training_processes[process_keys[0]]
+        
+        if int(gpu_index) not in gpu_indices.values():
+            unlucky_process = active_training_processes[process_keys[0]]
+            unlucky_process.kill()
+            return gpu_indices[process_keys[0]]    # return the gpu index of the unlucky process 
         for key in process_keys:
+            # kill all processes on a specific GPU
             if int(gpu_indices[key]) == int(gpu_index):
                 cleared_gpu_index = int(gpu_index)
                 unlucky_process = active_training_processes[key]
+                unlucky_process.kill()
                 print("killing process {}".format(key))
-        unlucky_process.kill()
+        
         return cleared_gpu_index
