@@ -22,8 +22,9 @@ drwxrwxr-x 2 hpinkard_waller henry 4096 Jan 22 20:01 training
 ```
 
 # launch
+```zsh
 python /home/hpinkard_waller/GitRepos/cookie_monster/launch_backend.py "/home/hpinkard_waller/GitRepos/microscoBayes/deep_density/train_model.py" "/home/hpinkard_waller/config_files_cookie_monster/" "/home/hpinkard_waller/models/"
-
+```
 
 # For use with jupyterlab
 
