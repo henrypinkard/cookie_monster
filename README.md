@@ -5,11 +5,13 @@ make a stop_training dir in home directory (for henrystopit)
 
 mkdir config_files_cookie_monster
 
+```
 .
 ├── complete
 ├── pending
 ├── template.yaml
 └── training
+```
 
 drwxrwxr-x 2 hpinkard_waller henry 4096 Jan 22 19:58 complete
 drwxrwxr-x 2 hpinkard_waller henry 4096 Jan 22 20:01 pending
