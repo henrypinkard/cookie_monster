@@ -8,22 +8,25 @@ import subprocess
 import os
 import shutil
 import argparse
+import psutil
 
         
-def print_status_update(gpu_launch_times, gpu_kill_times, available_GPUs, gpu_indices, configs_to_retry, num_GPUs, 
-                GPU_LAUNCH_DELAY, GPU_KILL_DELAY, CONFIG_FILE_DIR):
+def print_status_update(gpu_launch_times, gpu_resume_times, available_GPUs, gpu_indices, configs_to_retry, num_GPUs, 
+                GPU_LAUNCH_DELAY, CONFIG_FILE_DIR):
     for gpu_index in range(num_GPUs):
         # delay from it being killed
-        if gpu_index in gpu_kill_times.keys() and \
-            time.time() - gpu_kill_times[gpu_index] < GPU_KILL_DELAY:
+        if gpu_index in gpu_resume_times.keys() and \
+             gpu_resume_times[gpu_index] * 60**2  - time.time() > 0:
             print('GPU ', gpu_index, ' is being left open for {:.2f}'.format(
-                (GPU_KILL_DELAY - (time.time() - gpu_kill_times[gpu_index])) / 60), ' minutes')
+                  ((60 ** 2 * gpu_resume_times[gpu_index]) - time.time()) / 60), ' minutes due to previous process kill')
         # delay from another process launching on this GPU
         if gpu_index in gpu_launch_times.keys() and \
                 time.time() - gpu_launch_times[gpu_index] < GPU_LAUNCH_DELAY:
             print('GPU ', gpu_index, ' is being left open for {:.2f}'.format(
-                (GPU_LAUNCH_DELAY - (time.time() - gpu_launch_times[gpu_index])) / 60), ' minutes')
+                (GPU_LAUNCH_DELAY - (time.time() - gpu_launch_times[gpu_index])) / 60), ' minutes (due to previous process launch)')
     print('available GPUs: ', available_GPUs)
+    print('available RAM: {:.2f}'.format(psutil.virtual_memory().available / 1024 ** 3), 'GB')
+     
     # print which configs are training on which GPUs
     for index in range(num_GPUs):
         if index in gpu_indices.values():
@@ -100,15 +103,20 @@ def create_saving_dir(saving_dir_root, model_name):
     return dest   
             
 
-def check_for_kill_flag(active_training_processes, gpu_indices):
+def check_for_kill_flag(active_training_processes, gpu_indices, default_delay_time):
     # Get home directory
     home = os.path.expanduser("~")
     flags = os.listdir(home + '/stop_training')
     # clear flag
     with open(home + '/stop_training/stop', 'r+') as f:
-        gpu_index = f.readline()
-        if len(gpu_index) == 0:
-            return 
+        line = f.readline()
+        if len(line) == 0:
+            return None, None
+        gpu_index, delay_time_h = line.split(' ')
+        if len(delay_time_h) == 0 or float(delay_time_h) == -1:
+            delay_time_h = default_delay_time
+        else:
+            delay_time_h = float(delay_time_h)
         f.truncate(0) #clear file
     # kill a process
     if len(active_training_processes) > 0:
@@ -118,7 +126,7 @@ def check_for_kill_flag(active_training_processes, gpu_indices):
         if int(gpu_index) not in gpu_indices.values():
             unlucky_process = active_training_processes[process_keys[0]]
             unlucky_process.kill()
-            return gpu_indices[process_keys[0]]    # return the gpu index of the unlucky process 
+            return gpu_indices[process_keys[0]], delay_time_h    # return the gpu index of the unlucky process 
         for key in process_keys:
             # kill all processes on a specific GPU
             if int(gpu_indices[key]) == int(gpu_index):
@@ -127,4 +135,5 @@ def check_for_kill_flag(active_training_processes, gpu_indices):
                 unlucky_process.kill()
                 print("killing process {}".format(key))
         
-        return cleared_gpu_index
+        return cleared_gpu_index, delay_time_h
+    return None, None

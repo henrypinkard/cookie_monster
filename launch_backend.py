@@ -12,6 +12,11 @@ import argparse
 from cookie_monster_lib import launch_training, check_GPU_status, \
     create_saving_dir, check_for_kill_flag, print_status_update
 import yaml
+import psutil
+
+# corectly number GPUs
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
+
 
 DEBUG = False
 
@@ -30,12 +35,15 @@ SAVING_DIR_ROOT = args.save_dir
 
 
 USAGE_THRESHOLD = 60 # need less than 30 percent usage (average)
-FREE_MEMORY_THRESHOLD = 6 # need more than 6 GB free memory at all times over last 10 minutes
+FREE_GPU_MEMORY_THRESHOLD = 6 # need more than 6 GB free memory at all times over last 10 minutes
+FREE_RAM_THRESHOLD = 10 # Dont train if less than this amount of RAM is free
+
 
 UPDATE_INTERVAL = 30 #seconds
 
-GPU_KILL_DELAY = 60 * 60 * 6 # 3 hours
+GPU_KILL_DELAY_H = 2 # 3 hours
 GPU_LAUNCH_DELAY = 60 * 15 # Wait min before launching new process on same GPU
+
 
 
 gpu_status_delta_t = 1 #seconds
@@ -53,7 +61,7 @@ nvidia_smi.nvmlInit()
 num_GPUs = nvidia_smi.nvmlDeviceGetCount() 
 gpu_usage = {index: [] for index in range(num_GPUs)}
 gpu_memory = {index: [] for index in range(num_GPUs)}
-gpu_kill_times = {index: 0 for index in range(num_GPUs)}
+gpu_resume_times = {index: 0 for index in range(num_GPUs)}
 
 last_status_time = -1
 
@@ -83,10 +91,10 @@ while True:
 
                 
     #check for kill flag
-    killed_gpu_index = check_for_kill_flag(active_training_processes, gpu_indices)
+    killed_gpu_index, delay = check_for_kill_flag(active_training_processes, gpu_indices, GPU_KILL_DELAY_H)
     if killed_gpu_index is not None:
-        print('killed gpu index: ', killed_gpu_index)
-        gpu_kill_times[killed_gpu_index] = time.time()
+        print('killed gpu index: ', killed_gpu_index, '  with resume delay: ', delay)
+        gpu_resume_times[killed_gpu_index] = time.time() / 60 ** 2 + delay
                 
     available_GPUs = []
     for gpu_index in range(num_GPUs):
@@ -102,13 +110,13 @@ while True:
         average_usage = np.mean(gpu_usage[gpu_index])
         average_memory = np.mean(gpu_memory[gpu_index])
         if average_usage < USAGE_THRESHOLD and usage < USAGE_THRESHOLD and \
-            free_memory > FREE_MEMORY_THRESHOLD and average_memory > FREE_MEMORY_THRESHOLD:
+            free_memory > FREE_GPU_MEMORY_THRESHOLD and average_memory > FREE_GPU_MEMORY_THRESHOLD:
             available_GPUs.append(gpu_index)
-            if gpu_index in gpu_kill_times.keys():
-                if time.time() - gpu_kill_times[gpu_index] < GPU_KILL_DELAY and gpu_index in available_GPUs:
+            if gpu_index in gpu_resume_times.keys():
+                if gpu_resume_times[gpu_index] - time.time() / 60 ** 2 > 0 and gpu_index in available_GPUs:
                     available_GPUs.remove(gpu_index)
                 else:
-                    del gpu_kill_times[gpu_index] # reset kill time   
+                    del gpu_resume_times[gpu_index] # the time has elapsed, clear it   
             if gpu_index in gpu_launch_times.keys() and \
                     time.time() - gpu_launch_times[gpu_index] < GPU_LAUNCH_DELAY and gpu_index in available_GPUs:
                 available_GPUs.remove(gpu_index)
@@ -119,8 +127,8 @@ while True:
              '%, {:.2f}'.format(average_memory), 'GB free')
 
     if time.time() - last_status_time > UPDATE_INTERVAL:
-        print_status_update(gpu_launch_times, gpu_kill_times, available_GPUs, gpu_indices, configs_to_retry, num_GPUs, 
-                GPU_LAUNCH_DELAY, GPU_KILL_DELAY, CONFIG_FILE_DIR)
+        print_status_update(gpu_launch_times, gpu_resume_times, available_GPUs, gpu_indices, configs_to_retry, num_GPUs, 
+                GPU_LAUNCH_DELAY, CONFIG_FILE_DIR)
         
         last_status_time = time.time()
 
@@ -131,17 +139,24 @@ while True:
         continue
 
 
+
     
     while True:
         if len(available_GPUs) == 0: 
             # print('no GPUs available')
+            break
+        # check the available RAM
+        mem = psutil.virtual_memory()
+        available_RAM = mem.available / 1024 ** 3
+        if available_RAM < FREE_RAM_THRESHOLD:
+            print('Not enough RAM available: {:.2f} GB'.format(available_RAM))
             break
         
         # if len(available_GPUs) == 1 and len(gpu_usage[available_GPUs[0]]) < num_gpu_samples:
         #     print("waiting before hogging last GPU{:.2f}%".format(len(gpu_usage[available_GPUs[0]]) / num_gpu_samples *100))
         #     break
         
-        # anything to train?
+        # Determine if anything to train by
         #    Check for failed attempts
         #    Check for pending config files
         pending_configs = [s for s in os.listdir(CONFIG_FILE_DIR + 'pending') if s.endswith(".yaml")]
@@ -151,7 +166,7 @@ while True:
             # load config
             with open(config_path, "r") as stream:
                 config = yaml.safe_load(stream)
-            should_resume =  not config['scheduler']['resume_training']
+            should_resume =  not config['options']['resume_training']
             # if it does exist, and youre not resuming, then delete the model dir
             dest = SAVING_DIR_ROOT + config_file_name[:-5]
             if os.path.exists(dest) and not should_resume:
@@ -174,12 +189,6 @@ while True:
         
         # Update the number of attempts and resave config file
 
-        config['scheduler']['attempt_number'] = config['scheduler']['attempt_number'] + 1
-        config['scheduler']['date'] = datetime.now().strftime("%Y-%m-%d")
-        if 'training' in config.keys():
-            del config['training']
-        with open( CONFIG_FILE_DIR + 'training/' + config_file_name , 'w') as file:
-            documents = yaml.dump(config, file)
 
         # prefer GPUs with most available memory:
         free_mem = np.array([np.mean(gpu_memory[index]) for index in available_GPUs])
@@ -204,3 +213,4 @@ while True:
 
 print('Exiting loop. This shouldnt happen. Why did this happen')
 # nvidia_smi.nvmlShutdown()
+
