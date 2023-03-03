@@ -160,7 +160,7 @@ while True:
         #    Check for failed attempts
         #    Check for pending config files
         pending_configs = [s for s in os.listdir(CONFIG_FILE_DIR + 'pending') if s.endswith(".yaml")]
-        # Sort so that FIFO
+        # sort so the ones added to this folder first get launched first
         pending_configs.sort(key=lambda x: os.path.getctime(os.path.join(CONFIG_FILE_DIR + 'pending', x)), reverse=True)
         if len(configs_to_retry) > 0:
             config_file_name = configs_to_retry.pop(0)
