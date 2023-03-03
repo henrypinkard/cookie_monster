@@ -168,10 +168,11 @@ while True:
             # load config
             with open(config_path, "r") as stream:
                 config = yaml.safe_load(stream)
-            should_resume =  not config['options']['resume_training']
+            should_resume =  config['options']['resume_training']
             # if it does exist, and youre not resuming, then delete the model dir
             dest = SAVING_DIR_ROOT + config_file_name[:-5]
             if os.path.exists(dest) and not should_resume:
+                print('deleting existing model dir: ', dest)
                 shutil.rmtree(dest)
             elif should_resume and not os.path.exists(dest):
                 warnings.warn('trying to resume training but model dir does not exist')
