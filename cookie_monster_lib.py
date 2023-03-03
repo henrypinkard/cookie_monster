@@ -34,7 +34,7 @@ def print_status_update(gpu_launch_times, gpu_resume_times, available_GPUs, gpu_
             for config_file, gpu_index in gpu_indices.items():
                 if gpu_index == index:
                     print('\t', config_file)
-    print('configs to retry: \n', configs_to_retry)
+    print('configs to retry:')
     for config in configs_to_retry:
         print('\t', config)
     pending_configs = [s for s in os.listdir(CONFIG_FILE_DIR + 'pending') if s.endswith(".yaml")]
