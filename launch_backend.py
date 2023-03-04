@@ -173,7 +173,9 @@ while True:
             dest = SAVING_DIR_ROOT + config_file_name[:-5]
             if os.path.exists(dest) and not should_resume:
                 print('deleting existing model dir: ', dest)
-                shutil.rmtree(dest)
+                shutil.rmtree(dest + '/model')
+                shutil.rmtree(dest + '/tensorboard')
+                shutil.rmtree(dest + '/other_logs')
             elif should_resume and not os.path.exists(dest):
                 warnings.warn('trying to resume training but model dir does not exist')
             saving_dir = create_saving_dir(SAVING_DIR_ROOT, config_file_name[:-5])
@@ -199,7 +201,8 @@ while True:
         # print('next to use ', available_GPUs[to_use])
         gpu_index = available_GPUs.pop(to_use)
         config_file_path = CONFIG_FILE_DIR + 'training/' + config_file_name
-        active_training_processes[config_file_name] = launch_training(train_script_path, gpu_index, saving_dir, config_file_path, saving_dir)
+        active_training_processes[config_file_name] = launch_training(
+            train_script_path, gpu_index, saving_dir, config_file_path, saving_dir)
         gpu_indices[config_file_name] = gpu_index
         # reset memory and usage history for this GPU so that another training waits before launching
         print('\n######################################################')
