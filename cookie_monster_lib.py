@@ -64,8 +64,16 @@ def launch_training(train_script_path, gpu_index, saving_dir, config_file_path, 
     def read_process_output():
         # Read the stdout line by line
         
-        
-        with open(stdout_path + '/process_output.txt', 'a') as f:
+        # find existing process_outputs in the directory
+        process_output_files = [s for s in os.listdir(stdout_path) if s.endswith(".txt") and 'process_output' in s]
+        if len(process_output_files) == 0:
+            process_output_number = 1
+        elif len(process_output_files) == 1:
+            process_output_number = 2 # this provides backwards compatibility 
+        else:
+            process_output_number = np.max([int(name.split('.')[0][len('process_output'):]) for name in process_output_files]) + 1
+
+        with open(stdout_path + f'/process_output_{process_output_number}.txt', 'a') as f:
             while True:
                 line = process.stdout.readline()
                 if not line:
