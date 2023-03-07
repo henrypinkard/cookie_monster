@@ -68,10 +68,11 @@ def launch_training(train_script_path, gpu_index, saving_dir, config_file_path, 
         process_output_files = [s for s in os.listdir(stdout_path) if s.endswith(".txt") and 'process_output' in s]
         if len(process_output_files) == 0:
             process_output_number = 1
-        elif len(process_output_files) == 1:
-            process_output_number = 2 # this provides backwards compatibility 
         else:
-            process_output_number = np.max([int(name.split('.')[0][len('process_output'):]) for name in process_output_files]) + 1
+            no_extensions = [name.split('.')[0] for name in process_output_files]
+            # ignore the ones that don't have a _number appended, because they are from the old version
+            new_version_no_extensions = list(filter(lambda x: x.count("_") == 2, no_extensions))
+            process_output_number = np.max([int(name.split('_')[-1]) for name in new_version_no_extensions]) + 1
 
         with open(stdout_path + f'/process_output_{process_output_number}.txt', 'a') as f:
             while True:
