@@ -10,7 +10,7 @@ import os
 import shutil
 import argparse
 from cookie_monster_backend_lib import launch_training, check_GPU_status, \
-    create_saving_dir, check_for_kill_flag, print_status_update
+    check_for_kill_flag, print_status_update
 import yaml
 import psutil
 import sys
@@ -201,23 +201,29 @@ while True:
                 config = yaml.safe_load(stream)
             should_resume =  config['options']['resume_training']
             # if it does exist, and youre not resuming, then delete the model dir
-            dest = SAVING_DIR_ROOT + config_file_name[:-5]
-            if os.path.exists(dest) and not should_resume:
-                print('deleting existing model/tensorboard/other_logs: ', dest)
-                if os.path.exists(dest + '/model'):
-                    shutil.rmtree(dest + '/model')
-                if os.path.exists(dest + '/tensorboard'):
-                    shutil.rmtree(dest + '/tensorboard')
-                if os.path.exists(dest + '/other_logs'):
-                    shutil.rmtree(dest + '/other_logs')
+            model_dir = SAVING_DIR_ROOT + config_file_name[:-5]
+            if os.path.exists(model_dir) and not should_resume:
+                # model dir exists, but we are not resuming, so delete subdirs but keep process outputs from previous attemtpt
+                print(f'deleting: \n\t{model_dir}/model\n\t{model_dir}/tensorboard\n\t{model_dir}/other_logs')
+                if os.path.exists(model_dir + '/model'):
+                    shutil.rmtree(model_dir + '/model')
+                if os.path.exists(model_dir + '/tensorboard'):
+                    shutil.rmtree(model_dir + '/tensorboard')
+                if os.path.exists(model_dir + '/other_logs'):
+                    shutil.rmtree(model_dir + '/other_logs')
+            elif os.path.exists(model_dir) and should_resume:
+                pass # resume the existing model
             else:
-                if should_resume and not os.path.exists(dest):
-                    warnings.warn('trying to resume training but model dir does not exist')
-                saving_dir = create_saving_dir(SAVING_DIR_ROOT, config_file_name[:-5])
-            # else it should already exist
+                # model dir does not exist, so create it
+                os.mkdir(model_dir)
+                    
         elif len(pending_configs) > 0:
             config_file_name = pending_configs.pop(0)
-            saving_dir = create_saving_dir(SAVING_DIR_ROOT, config_file_name[:-5])
+            model_dir = SAVING_DIR_ROOT + config_file_name[:-5]
+            # always erase the model dir if the config is coming from pending
+            if os.path.exists(model_dir):
+                shutil.rmtree(model_dir)
+            os.mkdir(model_dir)
             print('moving pending config file to training')
             config_path = CONFIG_FILE_DIR + 'training/' + config_file_name
             shutil.move(CONFIG_FILE_DIR + 'pending/' + config_file_name, config_path)
@@ -237,7 +243,7 @@ while True:
         gpu_index = available_GPUs.pop(to_use)
         config_file_path = CONFIG_FILE_DIR + 'training/' + config_file_name
         active_training_processes[config_file_name] = launch_training(
-            train_script_path, gpu_index, saving_dir, config_file_path, saving_dir)
+            train_script_path, gpu_index, model_dir, config_file_path, model_dir)
         gpu_indices[config_file_name] = gpu_index
         # reset memory and usage history for this GPU so that another training waits before launching
         print('\n######################################################')

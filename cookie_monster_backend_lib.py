@@ -10,6 +10,7 @@ import shutil
 import argparse
 import psutil
 import builtins
+import codecs
 
 def print(*args, **kwargs):
     """
@@ -82,13 +83,15 @@ def launch_training(train_script_path, gpu_index, saving_dir, config_file_path, 
             new_version_no_extensions = list(filter(lambda x: x.count("_") == 2, no_extensions))
             process_output_number = np.max([int(name.split('_')[-1]) for name in new_version_no_extensions]) + 1
 
-        with open(stdout_path + f'/process_output_{process_output_number}.txt', 'a') as f:
+        with codecs.open(stdout_path + f'/process_output_{process_output_number}.txt', 'a', 'utf-8') as f: 
+        # with open(stdout_path + f'/process_output_{process_output_number}.txt', 'a') as f:
             while True:
                 line = process.stdout.readline()
                 if not line:
                     # The process has exited, so shut down the thread
                     break       
-                f.write(line.decode())
+                f.write(line.decode('utf-8'))  
+                # f.write(line.decode())
                 f.flush()
                 # Check if the process has exited (still needed?)
                 exit_code = process.poll()
@@ -107,17 +110,6 @@ def launch_training(train_script_path, gpu_index, saving_dir, config_file_path, 
     #         print(line)
     #         if not line: break
     return process
-
-
-def create_saving_dir(saving_dir_root, model_name):
-    """
-    Create a directory for saving the model, overwriting if needed
-    """
-    dest = saving_dir_root + model_name
-    if os.path.exists(dest):
-        shutil.rmtree(dest)
-    os.mkdir(dest)
-    return dest   
             
 
 def check_for_kill_flag(active_training_processes, gpu_indices, default_delay_time):
