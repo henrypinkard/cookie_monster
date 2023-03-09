@@ -9,7 +9,7 @@ import subprocess
 import os
 import shutil
 import argparse
-from cookie_monster_lib import launch_training, check_GPU_status, \
+from cookie_monster_backend_lib import launch_training, check_GPU_status, \
     create_saving_dir, check_for_kill_flag, print_status_update
 import yaml
 import psutil
