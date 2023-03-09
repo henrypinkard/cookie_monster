@@ -9,6 +9,14 @@ import os
 import shutil
 import argparse
 import psutil
+import builtins
+
+def print(*args, **kwargs):
+    """
+    enables writing to file and console in real time
+    """
+    kwargs['flush'] = True
+    builtins.print(*args, **kwargs)
 
         
 def print_status_update(gpu_launch_times, gpu_resume_times, available_GPUs, gpu_indices, configs_to_retry, num_GPUs, 

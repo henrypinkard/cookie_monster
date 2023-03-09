@@ -13,6 +13,8 @@ from cookie_monster_lib import launch_training, check_GPU_status, \
     create_saving_dir, check_for_kill_flag, print_status_update
 import yaml
 import psutil
+import sys
+
 
 # corectly number GPUs
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
@@ -29,28 +31,31 @@ args = parser.parse_args()
 train_script_path = args.train_script_path
 
 
+# where to also write the STDOUT of this process
+COOKIE_MONSTER_LOGS_DIR = os.path.expanduser('~') + '/cookie_monster_logs'
+
 # make root directory for model and logging
 CONFIG_FILE_DIR = args.config_dir
 SAVING_DIR_ROOT = args.save_dir
 
+# check status of GPUs every GPU_STATUS_CHECK_INTERVAL seconds and keep a history of GPU_STATUS_CHECK_WINDOW seconds
+GPU_STATUS_CHECK_INTERVAL = 1 # seconds
+GPU_STATUS_CHECK_WINDOW = 60 * 10  # seconds
 
-USAGE_THRESHOLD = 60 # need less than 30 percent usage (average)
-FREE_GPU_MEMORY_THRESHOLD = 6 # need more than 6 GB free memory at all times over last 10 minutes
+# Consider a GPU free if its usage, memory, and system RAM meet these thresholds
+USAGE_THRESHOLD = 70 # need less than 70 percent usage (average)
+FREE_GPU_MEMORY_THRESHOLD = 6 # need > 6 GB free memory at all times over last 10 minutes
 FREE_RAM_THRESHOLD = 10 # Dont train if less than this amount of RAM is free
 
+# print updates to console/file every
+UPDATE_INTERVAL = 240 # seconds
 
-UPDATE_INTERVAL = 30 #seconds
+# if someone kills a process using *stopit script, wait at least GPU_KILL_DELAY_H hours before launching a new process on the same GPU
+GPU_KILL_DELAY_H = 2 # hours
+# After launching a process on a given GPU, wait at least GPU_LAUNCH_DELAY seconds before launching another process on the same GPU
+GPU_LAUNCH_DELAY = 60 * 15 # seconds, wait min before launching new process on same GPU
 
-GPU_KILL_DELAY_H = 2 # 3 hours
-GPU_LAUNCH_DELAY = 60 * 15 # Wait min before launching new process on same GPU
 
-
-
-gpu_status_delta_t = 1 #seconds
-gpu_status_average_window = 60 * 10  # how long it will wait to decide if a GPU is free
-# gpu_status_average_window = 60 * 3  #seconds
-
-num_gpu_samples = gpu_status_average_window // gpu_status_delta_t
 
 active_training_processes = {} #map from model/config file names to paths
 gpu_indices = {} #map from model/config file names to gpu indices
@@ -59,11 +64,37 @@ gpu_launch_times = {} #map from gpu indices to time of last launch on the
 #start up GPU status monitoring
 nvidia_smi.nvmlInit()
 num_GPUs = nvidia_smi.nvmlDeviceGetCount() 
+num_gpu_samples = GPU_STATUS_CHECK_WINDOW // GPU_STATUS_CHECK_INTERVAL
 gpu_usage = {index: [] for index in range(num_GPUs)}
 gpu_memory = {index: [] for index in range(num_GPUs)}
 gpu_resume_times = {index: 0 for index in range(num_GPUs)}
 
 last_status_time = -1
+
+
+# create a cookie_monster_logs dir in the home dir if it doesn't exist
+if not os.path.exists(COOKIE_MONSTER_LOGS_DIR):
+    os.mkdir(COOKIE_MONSTER_LOGS_DIR)
+
+
+# make a class that prints everything to a file as well as the console
+class Logger:
+ 
+    def __init__(self, filename):
+        self.console = sys.stdout
+        self.file = open(filename, 'w')
+ 
+    def write(self, message):
+        self.console.write(message)
+        self.file.write(message)
+ 
+    def flush(self):
+        self.console.flush()
+        self.file.flush()
+ 
+# Open file for writing
+filename = COOKIE_MONSTER_LOGS_DIR + '/cookie_monster_log_' + datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '.txt'
+sys.stdout = Logger(filename)
 
 while True:
     start_time = time.time()
@@ -98,7 +129,7 @@ while True:
                 
     available_GPUs = []
     for gpu_index in range(num_GPUs):
-          
+        
         # record usage
         free_memory, usage = check_GPU_status(gpu_index)
         gpu_usage[gpu_index].append(usage)
@@ -120,11 +151,11 @@ while True:
             if gpu_index in gpu_launch_times.keys() and \
                     time.time() - gpu_launch_times[gpu_index] < GPU_LAUNCH_DELAY and gpu_index in available_GPUs:
                 available_GPUs.remove(gpu_index)
- 
+
 
         if time.time() - last_status_time > UPDATE_INTERVAL:   
             print('GPU ', gpu_index, ' utilization: {:.2f}'.format( average_usage),
-             '%, {:.2f}'.format(average_memory), 'GB free')
+            '%, {:.2f}'.format(average_memory), 'GB free')
 
     if time.time() - last_status_time > UPDATE_INTERVAL:
         print_status_update(gpu_launch_times, gpu_resume_times, available_GPUs, gpu_indices, configs_to_retry, num_GPUs, 
@@ -135,7 +166,7 @@ while True:
 
     if len(available_GPUs) == 0:
         # print('No GPUs available')
-        time.sleep(gpu_status_delta_t)
+        time.sleep(GPU_STATUS_CHECK_INTERVAL)
         continue
 
 
@@ -172,16 +203,17 @@ while True:
             # if it does exist, and youre not resuming, then delete the model dir
             dest = SAVING_DIR_ROOT + config_file_name[:-5]
             if os.path.exists(dest) and not should_resume:
-                print('deleting existing model dir: ', dest)
+                print('deleting existing model/tensorboard/other_logs: ', dest)
                 if os.path.exists(dest + '/model'):
                     shutil.rmtree(dest + '/model')
                 if os.path.exists(dest + '/tensorboard'):
                     shutil.rmtree(dest + '/tensorboard')
                 if os.path.exists(dest + '/other_logs'):
                     shutil.rmtree(dest + '/other_logs')
-            elif should_resume and not os.path.exists(dest):
-                warnings.warn('trying to resume training but model dir does not exist')
-            saving_dir = create_saving_dir(SAVING_DIR_ROOT, config_file_name[:-5])
+            else:
+                if should_resume and not os.path.exists(dest):
+                    warnings.warn('trying to resume training but model dir does not exist')
+                saving_dir = create_saving_dir(SAVING_DIR_ROOT, config_file_name[:-5])
             # else it should already exist
         elif len(pending_configs) > 0:
             config_file_name = pending_configs.pop(0)
@@ -218,8 +250,8 @@ while True:
 
 
         
-    time.sleep(gpu_status_delta_t)
+    time.sleep(GPU_STATUS_CHECK_INTERVAL)
 
 print('Exiting loop. This shouldnt happen. Why did this happen')
-# nvidia_smi.nvmlShutdown()
+nvidia_smi.nvmlShutdown()
 
