@@ -22,6 +22,8 @@ def print(*args, **kwargs):
         
 def print_status_update(gpu_launch_times, gpu_resume_times, available_GPUs, gpu_indices, configs_to_retry, num_GPUs, 
                 GPU_LAUNCH_DELAY, CONFIG_FILE_DIR):
+    # print current data and time
+    print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
     for gpu_index in range(num_GPUs):
         # delay from it being killed
         if gpu_index in gpu_resume_times.keys() and \
