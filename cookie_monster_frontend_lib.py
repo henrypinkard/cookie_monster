@@ -11,7 +11,7 @@ from IPython.display import display, clear_output
 
 import numpy as np
 import os
-import tensorboard.backend.event_processing.event_accumulator as ea
+# import tensorboard.backend.event_processing.event_accumulator as ea
 
 
 def date_format(time_s):
@@ -24,16 +24,19 @@ def date_format(time_s):
 def read_tensorboard_elasped_time(tensorboard_dir):
     event_files = os.listdir(tensorboard_dir + '/train')
     # sort by created date
-    event_files.sort(key=lambda x: os.path.getctime(os.path.join(tensorboard_dir + '/train', x)))
+    event_files.sort(key=lambda x: os.path.getmtime(os.path.join(tensorboard_dir + '/train', x)))
+    # get the most recent file
+    event_file = event_files[0]
 
-    event_file = event_files[-1]
     # print(event_file)
     event_acc = ea.EventAccumulator(tensorboard_dir + '/train/' + event_file)   
     event_acc.Reload()
     # Show all tags in the log file
     a = event_acc.Tensors('epoch_loss')
 
-    wall_times = [x.wall_time for x in a]
+
+    wall_times = [event.wall_time for event in a]
+
     elapsed = np.max(wall_times) - np.min(wall_times)
     return elapsed
     # # convert elapsed time to hours, minutes, seconds
@@ -64,7 +67,7 @@ def create_df(STATUS_DIR, sort_columns=('experiment name', 'status', 'date')):
     tensorboard_dirs = []
     config_paths = []
     dates = []
-    elapsed_times_tensorboard = []
+    # elapsed_times_tensorboard = []
     elapsed_times_config = []
     attempts = []
 
@@ -106,11 +109,11 @@ def create_df(STATUS_DIR, sort_columns=('experiment name', 'status', 'date')):
         else:
             tensorboard_dirs.append('NA')
         
-        try:
-            elapsed_times_tensorboard.append(None if 'training' not in config else read_tensorboard_elasped_time(config['training']['tensorboard_dir']))
-        except:
-            warnings.warn(f"Cant find tensorboard dir for {config_file_path}")
-            elapsed_times_tensorboard.append(None) 
+        # try:
+        #     elapsed_times_tensorboard.append(None if 'training' not in config else read_tensorboard_elasped_time(config['training']['tensorboard_dir']))
+        # except:
+        #     warnings.warn(f"Can't read elapsed time from tensorboard for {config_file_path}")
+        #     elapsed_times_tensorboard.append(None) 
         elapsed_times_config.append(None if 'training' not in config else config['training']['elapsed'])
 
         
@@ -128,8 +131,8 @@ def create_df(STATUS_DIR, sort_columns=('experiment name', 'status', 'date')):
         single_marker_training.append(config['hyperparameters']['single_marker_training'])
 
 
-        if elapsed_times_tensorboard[-1] is not None and elapsed_times_tensorboard[-1] != 'NA':
-            elapsed_times_tensorboard[-1] = date_format(elapsed_times_tensorboard[-1])
+        # if elapsed_times_tensorboard[-1] is not None and elapsed_times_tensorboard[-1] != 'NA':
+        #     elapsed_times_tensorboard[-1] = date_format(elapsed_times_tensorboard[-1])
         if elapsed_times_config[-1] is not None and elapsed_times_config[-1] != 'NA':
             elapsed_times_config[-1] = date_format(elapsed_times_config[-1])
 
@@ -156,7 +159,7 @@ def create_df(STATUS_DIR, sort_columns=('experiment name', 'status', 'date')):
 
         "status": statuses, 
         "attempts": attempts, 
-        "elapsed_time (tensorboard)": elapsed_times_tensorboard,
+        # "elapsed_time (tensorboard)": elapsed_times_tensorboard,
         "elapsed_time (config)": elapsed_times_config,
         #  "config": config_paths, 
         #  "tensorboard": tensorboard_dirs}
