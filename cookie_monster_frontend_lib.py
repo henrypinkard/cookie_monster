@@ -48,15 +48,15 @@ def read_tensorboard_elasped_time(tensorboard_dir):
 
 
 
-def create_df(STATUS_DIR, sort_columns=('experiment name', 'status', 'date')):
+def create_df(CONFIG_FILE_DIR, sort_columns=('experiment name', 'status', 'date')):
 
     names = []
 
-    complete = os.listdir(STATUS_DIR + 'complete')
-    training = os.listdir(STATUS_DIR + 'training')
-    pending = os.listdir(STATUS_DIR + 'pending')
-    staging = os.listdir(STATUS_DIR + 'staging')
-    abandoned = os.listdir(STATUS_DIR + 'abandoned')
+    complete = os.listdir(CONFIG_FILE_DIR + 'complete')
+    training = os.listdir(CONFIG_FILE_DIR + 'training')
+    pending = os.listdir(CONFIG_FILE_DIR + 'pending')
+    staging = os.listdir(CONFIG_FILE_DIR + 'staging')
+    abandoned = os.listdir(CONFIG_FILE_DIR + 'abandoned')
 
 
     config_files = complete + training + pending + staging + abandoned
@@ -84,10 +84,11 @@ def create_df(STATUS_DIR, sort_columns=('experiment name', 'status', 'date')):
     overshoot_epochs = []
     single_marker_early_stopping = []
     single_marker_training = []
+    train_priority = []
 
 
     for config_file, status in zip(config_files, statuses):
-        config_file_path = STATUS_DIR + status + '/' + config_file
+        config_file_path = CONFIG_FILE_DIR + status + '/' + config_file
         with open(config_file_path, "r") as stream:
             config = yaml.safe_load(stream)
             m_time = os.path.getmtime(config_file_path)
@@ -137,7 +138,15 @@ def create_df(STATUS_DIR, sort_columns=('experiment name', 'status', 'date')):
             elapsed_times_config[-1] = date_format(elapsed_times_config[-1])
 
 
-        config_paths.append(STATUS_DIR.replace(os.path.expanduser('~'), '') + status + '/' + config_file)
+        if status == 'pending':
+            pending_configs = [s for s in os.listdir(CONFIG_FILE_DIR + 'pending') if s.endswith(".yaml")]
+            pending_configs.sort(key=lambda x: os.path.getctime(os.path.join(CONFIG_FILE_DIR + 'pending', x)))
+            train_priority.append(len(pending_configs) - pending_configs.index(config_file))
+        else:
+            train_priority.append('NA')
+
+
+        config_paths.append(CONFIG_FILE_DIR.replace(os.path.expanduser('~'), '') + status + '/' + config_file)
 
 
 
@@ -158,6 +167,8 @@ def create_df(STATUS_DIR, sort_columns=('experiment name', 'status', 'date')):
         # "single marker training": single_marker_training,
 
         "status": statuses, 
+        "train priority": train_priority,
+
         "attempts": attempts, 
         # "elapsed_time (tensorboard)": elapsed_times_tensorboard,
         "elapsed_time (config)": elapsed_times_config,

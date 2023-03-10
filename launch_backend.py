@@ -194,7 +194,8 @@ while True:
         # sort so the ones added to this folder first get launched first
         pending_configs.sort(key=lambda x: os.path.getctime(os.path.join(CONFIG_FILE_DIR + 'pending', x)))
         if len(configs_to_retry) > 0:
-            config_file_name = configs_to_retry.pop(0)
+            # take the most recently modified one
+            config_file_name = configs_to_retry.pop(-1)
             config_path = CONFIG_FILE_DIR + 'training/' + config_file_name
             # load config
             with open(config_path, "r") as stream:
