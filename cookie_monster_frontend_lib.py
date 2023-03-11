@@ -193,7 +193,7 @@ def create_df(CONFIG_FILE_DIR, sort_columns=('experiment name', 'status', 'date'
         elif x == 'training':
             return 'color: orange'
         elif x == 'pending':
-            return 'color: blue'
+            return 'color: yellow'
         elif x == 'staging':
             return 'color: lightblue'
         elif x == 'abandoned':
