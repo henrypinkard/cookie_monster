@@ -160,7 +160,6 @@ def train_script_setup():
 
 
     should_resume =  config['options']['resume_training']
-    print(saving_dir, should_resume)
     # if it does exist, and youre not resuming, then delete the model dir
     if os.path.exists(saving_dir) and not should_resume:
         # saving dir exists, but we are not resuming, so delete subdirs but keep process outputs from previous attemtpt
@@ -334,7 +333,7 @@ def check_for_kill_flag(request_queue, response_queue, active_experiments, defau
         response_queue.put('There are no active experiments')
         return None, None
     if np.sum([not e.immortal for e in active_experiments.values()]) == 0:
-        response_queue.put('All active experiments are very important and should not be interrupted without talking to me first')
+        response_queue.put(f'The experiment(s) on GPU{gpu_index} are high priority. Please ask before killing.')
         return None, None
     
     process_keys = list(active_experiments.keys())
@@ -358,7 +357,7 @@ def check_for_kill_flag(request_queue, response_queue, active_experiments, defau
         return None, None
     elif len([e for e in active_experiments.values() if not e.immortal and
               int(e.gpu_index) == int(gpu_index)]) == 0:
-        response_queue.put(f'All active experiments on GPU {gpu_index} are very important and should not be interrupted without talking to me first')
+        response_queue.put(f'The experiment(s) on GPU{gpu_index} are high priority. Please ask before killing.')
         return None, None
     else:
         # pick an abitrary process on the specified GPU
@@ -370,6 +369,6 @@ def check_for_kill_flag(request_queue, response_queue, active_experiments, defau
                 if active_experiments[key].start_time > unlucky_experiment.start_time:
                     unlucky_experiment = active_experiments[key]
         unlucky_experiment.process.kill()
-        response_queue.put(f'Killed process {unlucky_experiment.name} on GPU {gpu_index}, because thats what friends do.')
+        response_queue.put(f'Killed process {unlucky_experiment.name} on GPU {gpu_index}!!!')
         cleared_gpu_index = unlucky_experiment.gpu_index
         return cleared_gpu_index, delay_time_h
