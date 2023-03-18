@@ -10,7 +10,8 @@ import os
 import shutil
 import argparse
 from cookie_monster_backend_lib import launch_training, check_GPU_status, \
-    check_for_kill_flag, print_status_update
+    check_for_kill_flag, print_status_update, run_server, load_config
+
 import yaml
 import psutil
 import sys
@@ -22,21 +23,15 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
 DEBUG = False
 
-parser = argparse.ArgumentParser()
-# Required arguments
-parser.add_argument('train_script_path', help="train script to use", type=str)
-parser.add_argument('config_dir', help="where config files kept", type=str)
-parser.add_argument('save_dir', help="where trained models and data saved", type=str)
-args = parser.parse_args()
-train_script_path = args.train_script_path
-
+# parser = argparse.ArgumentParser()
+# # Required arguments
+# parser.add_argument('config_dir', help="where config files kept", type=str)
+# args = parser.parse_args()
+# CONFIG_FILE_DIR = args.config_dir
+CONFIG_FILE_DIR = "/home/hpinkard_waller/GitRepos/microscoBayes/experiments/config_files/"
 
 # where to also write the STDOUT of this process
 COOKIE_MONSTER_LOGS_DIR = os.path.expanduser('~') + '/cookie_monster_logs'
-
-# make root directory for model and logging
-CONFIG_FILE_DIR = args.config_dir
-SAVING_DIR_ROOT = args.save_dir
 
 # check status of GPUs every GPU_STATUS_CHECK_INTERVAL seconds and keep a history of GPU_STATUS_CHECK_WINDOW seconds
 GPU_STATUS_CHECK_INTERVAL = 1 # seconds
@@ -57,9 +52,8 @@ GPU_LAUNCH_DELAY = 60 * 15 # seconds, wait min before launching new process on s
 
 
 
-active_training_processes = {} #map from model/config file names to paths
-gpu_indices = {} #map from model/config file names to gpu indices
-gpu_launch_times = {} #map from gpu indices to time of last launch on the
+active_experiments = {} # map from model/config file names Objects
+gpu_launch_times = {} # map from gpu indices to time of last launch on the
 
 #start up GPU status monitoring
 nvidia_smi.nvmlInit()
@@ -96,25 +90,28 @@ class Logger:
 filename = COOKIE_MONSTER_LOGS_DIR + '/cookie_monster_log_' + datetime.now().strftime('%Y-%m-%d_%H-%M-%S') + '.txt'
 sys.stdout = Logger(filename)
 
+
+request_queue, response_queue = run_server()
+
 while True:
     start_time = time.time()
             
     # clear completed processes
-    for config_file in list(active_training_processes.keys()):
-        process = active_training_processes[config_file]
+    for config_file in list(active_experiments.keys()):
+        process = active_experiments[config_file].process
         if process.poll() is not None:
             print('clearing process ', config_file)
             # its finished
-            del active_training_processes[config_file]
-            del gpu_indices[config_file]
+            del active_experiments[config_file]
 
 
     # update config files
     configs_to_retry = []
     for config_file_name in os.listdir(CONFIG_FILE_DIR + 'training'):
-        if config_file_name not in active_training_processes.keys():
+        config = load_config(CONFIG_FILE_DIR + 'training/' + config_file_name)
+        if config_file_name not in active_experiments.keys():
             # if its not an active process its either complete or failed
-            if 'complete.txt' in os.listdir(SAVING_DIR_ROOT + config_file_name[:-5]):
+            if 'complete.txt' in os.listdir(config['saving_dir'] + config_file_name[:-5]):
                 # move config file to complete directory
                 shutil.move(CONFIG_FILE_DIR + 'training/' + config_file_name, CONFIG_FILE_DIR + 'complete/' + config_file_name)
             else:
@@ -122,7 +119,7 @@ while True:
 
                 
     #check for kill flag
-    killed_gpu_index, delay = check_for_kill_flag(active_training_processes, gpu_indices, GPU_KILL_DELAY_H)
+    killed_gpu_index, delay = check_for_kill_flag(request_queue, response_queue, active_experiments, GPU_KILL_DELAY_H)
     if killed_gpu_index is not None:
         print('killed gpu index: ', killed_gpu_index, '  with resume delay: ', delay)
         gpu_resume_times[killed_gpu_index] = time.time() / 60 ** 2 + delay
@@ -158,7 +155,7 @@ while True:
             '%, {:.2f}'.format(average_memory), 'GB free')
 
     if time.time() - last_status_time > UPDATE_INTERVAL:
-        print_status_update(gpu_launch_times, gpu_resume_times, available_GPUs, gpu_indices, configs_to_retry, num_GPUs, 
+        print_status_update(active_experiments, gpu_launch_times, gpu_resume_times, available_GPUs, configs_to_retry, num_GPUs, 
                 GPU_LAUNCH_DELAY, CONFIG_FILE_DIR)
         
         last_status_time = time.time()
@@ -195,57 +192,43 @@ while True:
         pending_configs.sort(key=lambda x: os.path.getctime(os.path.join(CONFIG_FILE_DIR + 'pending', x)))
         if len(configs_to_retry) > 0:
             # take the most recently modified one
-            config_file_name = configs_to_retry.pop(-1)
-            config_path = CONFIG_FILE_DIR + 'training/' + config_file_name
-            # load config
-            with open(config_path, "r") as stream:
-                config = yaml.safe_load(stream)
-            should_resume =  config['options']['resume_training']
-            # if it does exist, and youre not resuming, then delete the model dir
-            model_dir = SAVING_DIR_ROOT + config_file_name[:-5]
-            if os.path.exists(model_dir) and not should_resume:
-                # model dir exists, but we are not resuming, so delete subdirs but keep process outputs from previous attemtpt
-                print(f'deleting: \n\t{model_dir}/model\n\t{model_dir}/tensorboard\n\t{model_dir}/other_logs')
-                if os.path.exists(model_dir + '/model'):
-                    shutil.rmtree(model_dir + '/model')
-                if os.path.exists(model_dir + '/tensorboard'):
-                    shutil.rmtree(model_dir + '/tensorboard')
-                if os.path.exists(model_dir + '/other_logs'):
-                    shutil.rmtree(model_dir + '/other_logs')
-            elif os.path.exists(model_dir) and should_resume:
-                pass # resume the existing model
-            else:
-                # model dir does not exist, so create it
-                os.mkdir(model_dir)
-                    
+            config_file_name = configs_to_retry.pop(-1)   
+            config = load_config(CONFIG_FILE_DIR + '/training/' + config_file_name)
+            experiment_saving_dir = config['saving_dir'] + config_file_name[:-5]
         elif len(pending_configs) > 0:
-            config_file_name = pending_configs.pop(0)
-            model_dir = SAVING_DIR_ROOT + config_file_name[:-5]
+            config_file_name = pending_configs.pop(-1)
+            config = load_config(CONFIG_FILE_DIR + '/pending/' + config_file_name)
             # always erase the model dir if the config is coming from pending
-            if os.path.exists(model_dir):
-                shutil.rmtree(model_dir)
-            os.mkdir(model_dir)
+            experiment_saving_dir = config['saving_dir'] + config_file_name[:-5]
+            if os.path.exists(experiment_saving_dir):
+                shutil.rmtree(experiment_saving_dir)
+            os.mkdir(experiment_saving_dir)
             print('moving pending config file to training')
-            config_path = CONFIG_FILE_DIR + 'training/' + config_file_name
-            shutil.move(CONFIG_FILE_DIR + 'pending/' + config_file_name, config_path)
-            with open(config_path, "r") as stream:
-                config = yaml.safe_load(stream)
+            shutil.move(CONFIG_FILE_DIR + 'pending/' + config_file_name, CONFIG_FILE_DIR + 'training/' + config_file_name)
         else:
             # print('waiting for something to train')
             break #nothing to train
         
-        # Update the number of attempts and resave config file
+        config_path = CONFIG_FILE_DIR + 'training/' + config_file_name
 
-
-        # prefer GPUs with most available memory:
-        free_mem = np.array([np.mean(gpu_memory[index]) for index in available_GPUs])
-        to_use = np.argmax(free_mem)
-        # print('next to use ', available_GPUs[to_use])
+        # prefer empty GPUs
+        to_use = None
+        for i, gpu_index in enumerate(available_GPUs):
+            handle = nvidia_smi.nvmlDeviceGetHandleByIndex(gpu_index)  # get handle to the first GPU
+            info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)  # get memory info
+            # get the memory used by each process
+            processes = nvidia_smi.nvmlDeviceGetComputeRunningProcesses(handle)
+            if len(processes) == 0:
+                to_use = i
+                break
+        # if none are empty, prefer GPUs with most available memory:
+        if to_use is None:
+            free_mem = np.array([np.mean(gpu_memory[index]) for index in available_GPUs])
+            to_use = np.argmax(free_mem)
+        
         gpu_index = available_GPUs.pop(to_use)
         config_file_path = CONFIG_FILE_DIR + 'training/' + config_file_name
-        active_training_processes[config_file_name] = launch_training(
-            train_script_path, gpu_index, model_dir, config_file_path, model_dir)
-        gpu_indices[config_file_name] = gpu_index
+        active_experiments[config_file_name] = launch_training(gpu_index, experiment_saving_dir, config_file_path, experiment_saving_dir)
         # reset memory and usage history for this GPU so that another training waits before launching
         print('\n######################################################')
         print("\nGPU {}: Launched training {}".format(gpu_index, config_file_path))
