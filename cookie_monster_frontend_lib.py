@@ -117,8 +117,11 @@ def create_df(CONFIG_FILE_DIR, sort_columns=('experiment name', 'status', 'date'
         #     elapsed_times_tensorboard.append(None) 
         elapsed_times_config.append(None if 'training' not in config else config['training']['elapsed'])
 
+        if 'experiment_name' not in config:
+            experiment_names.append(config['metadata']['experiment_name'])
+        else:
+            experiment_names.append(config['experiment_name'])
         
-        experiment_names.append(config['experiment_name'])
         # hyperparameters
         all_marker_training.append(config['hyperparameters']['all_marker_training'])
         arch.append(config['hyperparameters']['arch'])
