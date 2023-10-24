@@ -74,18 +74,8 @@ def create_df(CONFIG_FILE_DIR, sort_columns=('experiment name', 'status', 'date'
     experiment_names = []
 
     # hyperparameters
-    all_marker_training = []
-    arch = []
-    batch_size = []
-    density_output = []
-    learning_rate = []
-    max_epochs = []
-    num_mixture_components = []
-    overshoot_epochs = []
-    single_marker_early_stopping = []
-    single_marker_training = []
+    hyperparameters = {}
     train_priority = []
-
 
     for config_file, status in zip(config_files, statuses):
         config_file_path = CONFIG_FILE_DIR + status + '/' + config_file
@@ -123,17 +113,9 @@ def create_df(CONFIG_FILE_DIR, sort_columns=('experiment name', 'status', 'date'
             experiment_names.append(config['experiment_name'])
         
         # hyperparameters
-        all_marker_training.append(config['hyperparameters']['all_marker_training'])
-        arch.append(config['hyperparameters']['arch'])
-        batch_size.append(config['hyperparameters']['batch_size'])
-        density_output.append(config['hyperparameters']['density_output'])
-        learning_rate.append(config['hyperparameters']['learning_rate'])
-        max_epochs.append(config['hyperparameters']['max_epochs'])
-        num_mixture_components.append(config['hyperparameters']['num_mixture_components'])
-        overshoot_epochs.append(config['hyperparameters']['overshoot_epochs'])
-        single_marker_early_stopping.append(config['hyperparameters']['single_marker_early_stopping'])
-        single_marker_training.append(config['hyperparameters']['single_marker_training'])
-
+        if config['hyperparameters']:
+            for name in config['hyperparameters'].keys():
+                hyperparameters[name] = config['hyperparameters'][name]
 
         # if elapsed_times_tensorboard[-1] is not None and elapsed_times_tensorboard[-1] != 'NA':
         #     elapsed_times_tensorboard[-1] = date_format(elapsed_times_tensorboard[-1])
@@ -157,17 +139,6 @@ def create_df(CONFIG_FILE_DIR, sort_columns=('experiment name', 'status', 'date'
         "date": dates,  
         "experiment name": experiment_names,
         "name": [cf.replace('_', " ") for cf in config_files],
-
-        # "all_marker_training": all_marker_training,
-        # "arch": arch,
-        # "batch size": batch_size,
-        # "density output": density_output,
-        # "learning rate": learning_rate,
-        # "max epochs": max_epochs,
-        # "num mixture components": num_mixture_components,
-        # "overshoot_epochs": overshoot_epochs,
-        # "single marker early stopping": single_marker_early_stopping,
-        # "single marker training": single_marker_training,
 
         "status": statuses, 
         "train priority": train_priority,
