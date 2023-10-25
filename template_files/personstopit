@@ -1,0 +1,17 @@
+#!/bin/bash
+# Define the URL of the Python server
+url='http://localhost:1888/messages' # TODO CHANGE TO YOUR UNIQUE PORT
+# Define the message to be sent
+if [ $# -eq 1 ]
+  then
+        message='{"gpu_index": '$1', "delay_time": 2, "user": "'"$USER"'"}'
+elif [ $# -eq 2 ]
+  then
+        message='{"gpu_index": '$1', "delay_time": '$2', "user": "'"$USER"'"}'
+else
+        message='{"gpu_index": -1, "delay_time": 2, "user": "'"$USER"'"}'
+fi
+# Send a POST request to the server and store the response in a variable
+response=$(curl -s -X POST -H 'Content-Type: application/json' -d "$message" $url)
+# Print the response
+echo "$response"

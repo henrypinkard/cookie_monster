@@ -28,10 +28,10 @@ DEBUG = False
 # parser.add_argument('config_dir', help="where config files kept", type=str)
 # args = parser.parse_args()
 # CONFIG_FILE_DIR = args.config_dir
-CONFIG_FILE_DIR = "/home/hpinkard_waller/GitRepos/microscoBayes/experiments/config_files/"
+CONFIG_FILE_DIR = "/home/lkabuli_waller/10tb_extension/test_experiments/config_files/" # CHANGE TO CONFIG FILE PATH
 
 # where to also write the STDOUT of this process
-COOKIE_MONSTER_LOGS_DIR = os.path.expanduser('~') + '/cookie_monster_logs'
+COOKIE_MONSTER_LOGS_DIR = "/home/lkabuli_waller/10tb_extension/cookie_monster_logs" # CHANGE TO LOG PATH, #os.path.expanduser('~') + '/cookie_monster_logs'
 
 # check status of GPUs every GPU_STATUS_CHECK_INTERVAL seconds and keep a history of GPU_STATUS_CHECK_WINDOW seconds
 GPU_STATUS_CHECK_INTERVAL = 1 # seconds

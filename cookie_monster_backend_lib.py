@@ -59,7 +59,7 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
 
-def run_server(port=7888):
+def run_server(port=7888): # TODO change port here to be the port you're hosting on
     server_address = ('', port)
     httpd = HTTPServer(server_address, HTTPRequestHandler)
     print(f'Starting server on port {port}...')
