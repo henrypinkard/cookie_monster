@@ -1,0 +1,13 @@
+config_file_version: ‘2.3’
+data:
+saving_dir: /home/lkabuli_waller/10tb_extension/test_experiments/saving_dir/
+train_script_path: /home/lkabuli_waller/10tb_extension/test_experiments/test_script.py 
+metadata:
+  experiment_name: template
+hyperparameters:
+  # put your hyperparameters for training here
+
+options:
+  hog_memory: false
+  resume_training: false
+  immortal: false
