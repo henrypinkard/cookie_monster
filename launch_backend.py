@@ -17,21 +17,41 @@ import psutil
 import sys
 
 
+
 # corectly number GPUs
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 
-
 DEBUG = False
 
-# parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser()
 # # Required arguments
-# parser.add_argument('config_dir', help="where config files kept", type=str)
-# args = parser.parse_args()
-# CONFIG_FILE_DIR = args.config_dir
-CONFIG_FILE_DIR = "/home/lkabuli_waller/10tb_extension/test_experiments/config_files/" # CHANGE TO CONFIG FILE PATH
+parser.add_argument('config_dir', help="where config files kept", type=str)
+args = parser.parse_args()
+CONFIG_FILE_DIR = args.config_dir
+if CONFIG_FILE_DIR[-1] != os.sep:
+    CONFIG_FILE_DIR += os.sep
+# check if complete, pending, staging, traing, and abandoned directories exist and if not create them
+for dir_name in ['complete', 'pending', 'staging', 'training', 'abandoned']:
+    path = CONFIG_FILE_DIR + dir_name
+    if not os.path.exists(path):
+        # mkdir -p
+        os.makedirs(path)
+        print('created directory: ', CONFIG_FILE_DIR + dir_name)
+
+# read port number from env variable
+PORT_NUMBER = int(os.environ['COOKIE_MONSTER_PORT_NUMBER'])
+
 
 # where to also write the STDOUT of this process
-COOKIE_MONSTER_LOGS_DIR = "/home/lkabuli_waller/10tb_extension/cookie_monster_logs" # CHANGE TO LOG PATH, #os.path.expanduser('~') + '/cookie_monster_logs'
+# COOKIE_MONSTER_LOGS_DIR = "/home/hpinkard_waller/10tb_extension/cookie_monster_logs" # CHANGE TO LOG PATH, #os.path.expanduser('~') + '/cookie_monster_logs'
+# get it from env variable, or if it doesnt exist, throw an error
+COOKIE_MONSTER_LOGS_DIR = os.environ['COOKIE_MONSTER_LOGS_DIR']
+if COOKIE_MONSTER_LOGS_DIR is None:
+    raise Exception('COOKIE_MONSTER_LOGS_DIR environment variable not set. Please set it to'
+                    'the directory where you want to store logs in .bashrc or.zshrc')
+# create it if it doesnt exist
+if not os.path.exists(COOKIE_MONSTER_LOGS_DIR):
+    os.mkdir(COOKIE_MONSTER_LOGS_DIR)
 
 # check status of GPUs every GPU_STATUS_CHECK_INTERVAL seconds and keep a history of GPU_STATUS_CHECK_WINDOW seconds
 GPU_STATUS_CHECK_INTERVAL = 1 # seconds
@@ -48,7 +68,7 @@ UPDATE_INTERVAL = 240 # seconds
 # if someone kills a process using *stopit script, wait at least GPU_KILL_DELAY_H hours before launching a new process on the same GPU
 GPU_KILL_DELAY_H = 2 # hours
 # After launching a process on a given GPU, wait at least GPU_LAUNCH_DELAY seconds before launching another process on the same GPU
-GPU_LAUNCH_DELAY = 60 * 15 # seconds, wait min before launching new process on same GPU
+GPU_LAUNCH_DELAY = 60 * 15 # seconds, wait before launching new process on same GPU
 
 
 
@@ -91,7 +111,7 @@ filename = COOKIE_MONSTER_LOGS_DIR + '/cookie_monster_log_' + datetime.now().str
 sys.stdout = Logger(filename)
 
 
-request_queue, response_queue = run_server()
+request_queue, response_queue = run_server(port=PORT_NUMBER)
 
 while True:
     start_time = time.time()
