@@ -1,9 +1,6 @@
-config_file_version: ‘2.3’
-data:
+config_file_version: ‘2.4’
 saving_dir: /home/lkabuli_waller/10tb_extension/test_experiments/saving_dir/
 train_script_path: /home/lkabuli_waller/10tb_extension/test_experiments/test_script.py 
-metadata:
-  experiment_name: template
 hyperparameters:
   # put your hyperparameters for training here
 

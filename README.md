@@ -13,6 +13,7 @@ git clone https://github.com/henrypinkard/cookie_monster.git
 !pip install nvidia-ml-py3
 !pip install numpy
 !pip install itables
+!pip install pyyaml
 ```
 ### 3. Add to python path
 Add path to the git repo to `.bashrc` or `.zshrc` in the PYTHONPATH env variable

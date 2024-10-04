@@ -53,14 +53,14 @@ if COOKIE_MONSTER_LOGS_DIR is None:
 if not os.path.exists(COOKIE_MONSTER_LOGS_DIR):
     os.mkdir(COOKIE_MONSTER_LOGS_DIR)
 
-# check status of GPUs every GPU_STATUS_CHECK_INTERVAL seconds and keep a history of GPU_STATUS_CHECK_WINDOW seconds
-GPU_STATUS_CHECK_INTERVAL = 1 # seconds
-GPU_STATUS_CHECK_WINDOW = 60 * 10  # seconds
+# check status of GPUs every RESOURCE_STATUS_CHECK_INTERVAL seconds and keep a history of RESOURCE_STATUS_CHECK_WINDOW seconds
+RESOURCE_STATUS_CHECK_INTERVAL = 1 # seconds
+RESOURCE_STATUS_CHECK_WINDOW = 60 * 30  # seconds
 
 # Consider a GPU free if its usage, memory, and system RAM meet these thresholds
 USAGE_THRESHOLD = 70 # need less than 70 percent usage (average)
 FREE_GPU_MEMORY_THRESHOLD = 6 # need > 6 GB free memory at all times over last 10 minutes
-FREE_RAM_THRESHOLD = 10 # Dont train if less than this amount of RAM is free
+FREE_RAM_THRESHOLD = 20 # Dont train if less than this amount of RAM is free
 
 # print updates to console/file every
 UPDATE_INTERVAL = 240 # seconds
@@ -68,7 +68,7 @@ UPDATE_INTERVAL = 240 # seconds
 # if someone kills a process using *stopit script, wait at least GPU_KILL_DELAY_H hours before launching a new process on the same GPU
 GPU_KILL_DELAY_H = 2 # hours
 # After launching a process on a given GPU, wait at least GPU_LAUNCH_DELAY seconds before launching another process on the same GPU
-GPU_LAUNCH_DELAY = 60 * 15 # seconds, wait before launching new process on same GPU
+PROCESS_LAUNCH_DELAY = 60 * 8 # seconds, wait before launching new process
 
 
 
@@ -78,9 +78,10 @@ gpu_launch_times = {} # map from gpu indices to time of last launch on the
 #start up GPU status monitoring
 nvidia_smi.nvmlInit()
 num_GPUs = nvidia_smi.nvmlDeviceGetCount() 
-num_gpu_samples = GPU_STATUS_CHECK_WINDOW // GPU_STATUS_CHECK_INTERVAL
+num_gpu_samples = RESOURCE_STATUS_CHECK_WINDOW // RESOURCE_STATUS_CHECK_INTERVAL
 gpu_usage = {index: [] for index in range(num_GPUs)}
 gpu_memory = {index: [] for index in range(num_GPUs)}
+available_RAM = []
 gpu_resume_times = {index: 0 for index in range(num_GPUs)}
 
 last_status_time = -1
@@ -131,9 +132,12 @@ while True:
         config = load_config(CONFIG_FILE_DIR + 'training/' + config_file_name)
         if config_file_name not in active_experiments.keys():
             # if its not an active process its either complete or failed
-            if 'complete.txt' in os.listdir(config['saving_dir'] + config_file_name[:-5]):
+            saving_dir = config['saving_dir'] + config_file_name[:-5]
+            if 'complete.txt' in os.listdir(saving_dir):
                 # move config file to complete directory
                 shutil.move(CONFIG_FILE_DIR + 'training/' + config_file_name, CONFIG_FILE_DIR + 'complete/' + config_file_name)
+                # copy config file to saving dir
+                shutil.copy(CONFIG_FILE_DIR + 'complete/' + config_file_name, saving_dir + os.sep + config_file_name)
             else:
                 configs_to_retry.append(config_file_name)
 
@@ -145,18 +149,24 @@ while True:
         gpu_resume_times[killed_gpu_index] = time.time() / 60 ** 2 + delay
                 
     available_GPUs = []
+    time_since_last_process_launch = time.time() - max(gpu_launch_times.values() if len(gpu_launch_times) > 0 else [0])
     for gpu_index in range(num_GPUs):
         
         # record usage
         free_memory, usage = check_GPU_status(gpu_index)
         gpu_usage[gpu_index].append(usage)
         gpu_memory[gpu_index].append(free_memory)
+        available_RAM.append(psutil.virtual_memory().available / 1024 ** 3)
         if len(gpu_usage[gpu_index]) > num_gpu_samples:
             gpu_usage[gpu_index] = gpu_usage[gpu_index][-num_gpu_samples:]
             gpu_memory[gpu_index] = gpu_memory[gpu_index][-num_gpu_samples:]
+            available_RAM = available_RAM[-num_gpu_samples:]
+
         # compute averages
         average_usage = np.mean(gpu_usage[gpu_index])
         average_memory = np.mean(gpu_memory[gpu_index])
+        min_free_ram = np.percentile(available_RAM, 5)
+        enough_ram_for_launch = min_free_ram > FREE_RAM_THRESHOLD
         if average_usage < USAGE_THRESHOLD and usage < USAGE_THRESHOLD and \
             free_memory > FREE_GPU_MEMORY_THRESHOLD and average_memory > FREE_GPU_MEMORY_THRESHOLD:
             available_GPUs.append(gpu_index)
@@ -166,7 +176,7 @@ while True:
                 else:
                     del gpu_resume_times[gpu_index] # the time has elapsed, clear it   
             if gpu_index in gpu_launch_times.keys() and \
-                    time.time() - gpu_launch_times[gpu_index] < GPU_LAUNCH_DELAY and gpu_index in available_GPUs:
+                    time.time() - gpu_launch_times[gpu_index] < PROCESS_LAUNCH_DELAY and gpu_index in available_GPUs:
                 available_GPUs.remove(gpu_index)
 
 
@@ -175,92 +185,89 @@ while True:
             '%, {:.2f}'.format(average_memory), 'GB free')
 
     if time.time() - last_status_time > UPDATE_INTERVAL:
-        print_status_update(active_experiments, gpu_launch_times, gpu_resume_times, available_GPUs, configs_to_retry, num_GPUs, 
-                GPU_LAUNCH_DELAY, CONFIG_FILE_DIR)
+        print_status_update(active_experiments, gpu_launch_times, gpu_resume_times, available_GPUs, configs_to_retry, num_GPUs, min_free_ram,
+                PROCESS_LAUNCH_DELAY, CONFIG_FILE_DIR)
         
         last_status_time = time.time()
 
 
     if len(available_GPUs) == 0:
         # print('No GPUs available')
-        time.sleep(GPU_STATUS_CHECK_INTERVAL)
+        time.sleep(RESOURCE_STATUS_CHECK_INTERVAL)
         continue
 
 
+    if not enough_ram_for_launch:
+        time.sleep(RESOURCE_STATUS_CHECK_INTERVAL)
+        continue
 
+    if time_since_last_process_launch < PROCESS_LAUNCH_DELAY:
+        time.sleep(RESOURCE_STATUS_CHECK_INTERVAL)
+        continue
     
-    while True:
-        if len(available_GPUs) == 0: 
-            # print('no GPUs available')
+    if len(available_GPUs) == 0: 
+        # print('no GPUs available')
+        continue
+    
+    # if len(available_GPUs) == 1 and len(gpu_usage[available_GPUs[0]]) < num_gpu_samples:
+    #     print("waiting before hogging last GPU{:.2f}%".format(len(gpu_usage[available_GPUs[0]]) / num_gpu_samples *100))
+    #     break
+    
+    # Determine if anything to train by
+    #    Check for failed attempts
+    #    Check for pending config files
+    pending_configs = [s for s in os.listdir(CONFIG_FILE_DIR + 'pending') if s.endswith(".yaml")]
+    # sort so the ones added to this folder first get launched first
+    pending_configs.sort(key=lambda x: os.path.getctime(os.path.join(CONFIG_FILE_DIR + 'pending', x)))
+    if len(configs_to_retry) > 0:
+        # take the most recently modified one
+        config_file_name = configs_to_retry.pop(-1)   
+        config = load_config(CONFIG_FILE_DIR + '/training/' + config_file_name)
+        experiment_saving_dir = config['saving_dir'] + config_file_name[:-5]
+    elif len(pending_configs) > 0:
+        config_file_name = pending_configs.pop(-1)
+        config = load_config(CONFIG_FILE_DIR + '/pending/' + config_file_name)
+        # always erase the model dir if the config is coming from pending
+        experiment_saving_dir = config['saving_dir'] + config_file_name[:-5]
+        if os.path.exists(experiment_saving_dir):
+            shutil.rmtree(experiment_saving_dir)
+        os.makedirs(experiment_saving_dir, exist_ok=True)
+        print('moving pending config file to training')
+        shutil.move(CONFIG_FILE_DIR + 'pending/' + config_file_name, CONFIG_FILE_DIR + 'training/' + config_file_name)
+    else:
+        # print('waiting for something to train')
+        continue #nothing to train
+    
+    config_path = CONFIG_FILE_DIR + 'training/' + config_file_name
+
+    # prefer empty GPUs
+    to_use = None
+    for i, gpu_index in enumerate(available_GPUs):
+        handle = nvidia_smi.nvmlDeviceGetHandleByIndex(gpu_index)  # get handle to the first GPU
+        info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)  # get memory info
+        # get the memory used by each process
+        processes = nvidia_smi.nvmlDeviceGetComputeRunningProcesses(handle)
+        if len(processes) == 0:
+            to_use = i
             break
-        # check the available RAM
-        mem = psutil.virtual_memory()
-        available_RAM = mem.available / 1024 ** 3
-        if available_RAM < FREE_RAM_THRESHOLD:
-            print('Not enough RAM available: {:.2f} GB'.format(available_RAM))
-            break
-        
-        # if len(available_GPUs) == 1 and len(gpu_usage[available_GPUs[0]]) < num_gpu_samples:
-        #     print("waiting before hogging last GPU{:.2f}%".format(len(gpu_usage[available_GPUs[0]]) / num_gpu_samples *100))
-        #     break
-        
-        # Determine if anything to train by
-        #    Check for failed attempts
-        #    Check for pending config files
-        pending_configs = [s for s in os.listdir(CONFIG_FILE_DIR + 'pending') if s.endswith(".yaml")]
-        # sort so the ones added to this folder first get launched first
-        pending_configs.sort(key=lambda x: os.path.getctime(os.path.join(CONFIG_FILE_DIR + 'pending', x)))
-        if len(configs_to_retry) > 0:
-            # take the most recently modified one
-            config_file_name = configs_to_retry.pop(-1)   
-            config = load_config(CONFIG_FILE_DIR + '/training/' + config_file_name)
-            experiment_saving_dir = config['saving_dir'] + config_file_name[:-5]
-        elif len(pending_configs) > 0:
-            config_file_name = pending_configs.pop(-1)
-            config = load_config(CONFIG_FILE_DIR + '/pending/' + config_file_name)
-            # always erase the model dir if the config is coming from pending
-            experiment_saving_dir = config['saving_dir'] + config_file_name[:-5]
-            if os.path.exists(experiment_saving_dir):
-                shutil.rmtree(experiment_saving_dir)
-            os.mkdir(experiment_saving_dir)
-            print('moving pending config file to training')
-            shutil.move(CONFIG_FILE_DIR + 'pending/' + config_file_name, CONFIG_FILE_DIR + 'training/' + config_file_name)
-        else:
-            # print('waiting for something to train')
-            break #nothing to train
-        
-        config_path = CONFIG_FILE_DIR + 'training/' + config_file_name
+    # if none are empty, prefer GPUs with most available memory:
+    if to_use is None:
+        free_mem = np.array([np.mean(gpu_memory[index]) for index in available_GPUs])
+        to_use = np.argmax(free_mem)
+    
+    gpu_index = available_GPUs.pop(to_use)
+    config_file_path = CONFIG_FILE_DIR + 'training/' + config_file_name
+    active_experiments[config_file_name] = launch_training(gpu_index, experiment_saving_dir, config_file_path, experiment_saving_dir)
+    # reset memory and usage history for this GPU so that another training waits before launching
+    print('\n######################################################')
+    print("\nGPU {}: Launched training {}".format(gpu_index, config_file_path))
+    print('######################################################\n')
+    gpu_launch_times[int(gpu_index)] = time.time()
+    # reset these because they are now out of date
+    gpu_usage[gpu_index] = []
+    gpu_memory[gpu_index] = []
 
-        # prefer empty GPUs
-        to_use = None
-        for i, gpu_index in enumerate(available_GPUs):
-            handle = nvidia_smi.nvmlDeviceGetHandleByIndex(gpu_index)  # get handle to the first GPU
-            info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)  # get memory info
-            # get the memory used by each process
-            processes = nvidia_smi.nvmlDeviceGetComputeRunningProcesses(handle)
-            if len(processes) == 0:
-                to_use = i
-                break
-        # if none are empty, prefer GPUs with most available memory:
-        if to_use is None:
-            free_mem = np.array([np.mean(gpu_memory[index]) for index in available_GPUs])
-            to_use = np.argmax(free_mem)
-        
-        gpu_index = available_GPUs.pop(to_use)
-        config_file_path = CONFIG_FILE_DIR + 'training/' + config_file_name
-        active_experiments[config_file_name] = launch_training(gpu_index, experiment_saving_dir, config_file_path, experiment_saving_dir)
-        # reset memory and usage history for this GPU so that another training waits before launching
-        print('\n######################################################')
-        print("\nGPU {}: Launched training {}".format(gpu_index, config_file_path))
-        print('######################################################\n')
-        gpu_launch_times[int(gpu_index)] = time.time()
-        # reset these because they are now out of date
-        gpu_usage[gpu_index] = []
-        gpu_memory[gpu_index] = []
-
-
-        
-    time.sleep(GPU_STATUS_CHECK_INTERVAL)
+    time.sleep(RESOURCE_STATUS_CHECK_INTERVAL)
 
 print('Exiting loop. This shouldnt happen. Why did this happen')
 nvidia_smi.nvmlShutdown()

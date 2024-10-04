@@ -52,15 +52,29 @@ def create_df(CONFIG_FILE_DIR, sort_columns=('experiment name', 'status', 'date'
 
     names = []
 
-    complete = os.listdir(CONFIG_FILE_DIR + 'complete')
-    training = os.listdir(CONFIG_FILE_DIR + 'training')
-    pending = os.listdir(CONFIG_FILE_DIR + 'pending')
-    staging = os.listdir(CONFIG_FILE_DIR + 'staging')
-    abandoned = os.listdir(CONFIG_FILE_DIR + 'abandoned')
+    # complete = os.listdir(CONFIG_FILE_DIR + 'complete')
+    # training = os.listdir(CONFIG_FILE_DIR + 'training')
+    # pending = os.listdir(CONFIG_FILE_DIR + 'pending')
+    # staging = os.listdir(CONFIG_FILE_DIR + 'staging')
+    # abandoned = os.listdir(CONFIG_FILE_DIR + 'abandoned')
 
+    def get_subpaths(dir):
+        paths = []
+        for path, subdirs, files in os.walk(dir):
+            paths.extend(files)
+            for subdir in subdirs:
+                paths.extend(get_subpaths(subdir))
+        return paths
 
-    config_files = complete + training + pending + staging + abandoned
-    statuses = len(complete) * ["complete"] + len(training) * ["training"] + len(pending) * ["pending"] + len(staging) * ["staging"] + len(abandoned) * ["abandoned"] 
+    complete = get_subpaths(CONFIG_FILE_DIR + 'complete')
+    training = get_subpaths(CONFIG_FILE_DIR + 'training')
+    pending = get_subpaths(CONFIG_FILE_DIR + 'pending')
+    staging = get_subpaths(CONFIG_FILE_DIR + 'staging')
+
+    config_files = complete + training + pending + staging
+    # + abandoned
+    statuses = len(complete) * ["complete"] + len(training) * ["training"] + len(pending) * ["pending"] + len(staging) * ["staging"] 
+    # + len(abandoned) * ["abandoned"] 
 
 
     # Read stuff from its config file
@@ -79,6 +93,9 @@ def create_df(CONFIG_FILE_DIR, sort_columns=('experiment name', 'status', 'date'
 
     for config_file, status in zip(config_files, statuses):
         config_file_path = CONFIG_FILE_DIR + status + '/' + config_file
+        # if its not a yaml file, skip it
+        if not config_file.endswith(".yaml"):
+            continue
         with open(config_file_path, "r") as stream:
             config = yaml.safe_load(stream)
             m_time = os.path.getmtime(config_file_path)

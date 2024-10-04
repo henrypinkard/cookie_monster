@@ -197,7 +197,7 @@ def print(*args, **kwargs):
     builtins.print(*args, **kwargs)
 
         
-def print_status_update(active_experiments, gpu_launch_times, gpu_resume_times, available_GPUs, configs_to_retry, num_GPUs, 
+def print_status_update(active_experiments, gpu_launch_times, gpu_resume_times, available_GPUs, configs_to_retry, num_GPUs, min_free_ram,
                 GPU_LAUNCH_DELAY, CONFIG_FILE_DIR):
     # print current data and time
     print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
@@ -210,10 +210,10 @@ def print_status_update(active_experiments, gpu_launch_times, gpu_resume_times, 
         # delay from another process launching on this GPU
         if gpu_index in gpu_launch_times.keys() and \
                 time.time() - gpu_launch_times[gpu_index] < GPU_LAUNCH_DELAY:
-            print('GPU ', gpu_index, ' is being left open for {:.2f}'.format(
-                (GPU_LAUNCH_DELAY - (time.time() - gpu_launch_times[gpu_index])) / 60), ' minutes (due to previous process launch)')
+            print('Process launched on GPU ', gpu_index, ' {:.2f}'.format(
+                ( (time.time() - gpu_launch_times[gpu_index])) / 60), ' minutes ago')
     print('available GPUs: ', available_GPUs)
-    print('available RAM: {:.2f}'.format(psutil.virtual_memory().available / 1024 ** 3), 'GB')
+    print('minium recent available RAM: {:.2f}'.format(min_free_ram), 'GB')
      
     # print which configs are training on which GPUs
     for index in range(num_GPUs):
